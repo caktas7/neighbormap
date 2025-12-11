@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Neighbor Rings Map</title>
+
+  <link rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }
+
+    #topbar {
+      padding: 5px 10px;
+      background: #f0f0f0;
+      border-bottom: 1px solid #ccc;
+    }
+
+    #controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    #searchBox {
+      padding: 4px 6px;
+      min-width: 220px;
+    }
+
+    #neighborList {
+      font-size: 12px;
+      font-weight: 300;
+      color: #333;
+    }
+
+    #map {
+      width: 100%;
+      height: calc(100% - 70px);
+    }
+
+    /* Unified label: Name + Distance */
+    .label-box {
+      font-size: 11px;
+      font-weight: 600;
+      color: #000;
+      background: rgba(255,255,255,0.95);
+      padding: 2px 4px;
+      border-radius: 4px;
+      border: 1px solid #777;
+      text-align: center;
+      line-height: 13px;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="topbar">
+    <div id="controls">
+      <strong>Search:</strong>
+      <input id="searchBox" type="text" placeholder="Enter site name">
+      <button id="searchButton">Go</button>
+    </div>
+    <div id="neighborList">Ring 1: – &nbsp; Ring 2: –</div>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="web_data.js"></script>
+
+  <script>
+    var map = L.map("map");
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+
+    var neighborLayer = L.layerGroup().addTo(map);
+    var siteMarkers = {};
+    var siteNames = Object.keys(webData.sites);
+
+    if (siteNames.length > 0) {
+      let s = webData.sites[siteNames[0]];
+      map.setView([s.lat, s.lon], 11);
+    }
+
+    // -----------------------------------------------------------
+    // Place all sites (5G + 4G sites)
+    // -----------------------------------------------------------
+    siteNames.forEach(name => {
+      let s = webData.sites[name];
+
+      let marker = L.circleMarker([s.lat, s.lon], {
+        radius: 6,
+        color: "#FF1000" ,
+        weight: 3,
+        fillOpacity: 0.9
+      }).addTo(map);
+
+      marker.on("click", () => showNeighbors(name));
+      siteMarkers[name] = marker;
+    });
+
+
+    // -----------------------------------------------------------
+    // Add Name + Distance (multi-line) label above neighbor marker
+    // -----------------------------------------------------------
+    function addLabel(lat, lon, htmlText) {
+      L.marker([lat, lon], {
+        icon: L.divIcon({
+          className: "label-box",
+          html: htmlText,
+          iconSize: [0, 0],
+          iconAnchor: [40, 25]
+        }),
+        interactive: false
+      }).addTo(neighborLayer);
+    }
+
+
+    // -----------------------------------------------------------
+    // Show neighbors (for ANY clicked site)
+    // -----------------------------------------------------------
+    function showNeighbors(name) {
+      neighborLayer.clearLayers();
+
+      let src = webData.sites[name];
+      let nbrs = webData.neighbors[name] || [];
+
+      let ring1 = nbrs.filter(n => n.ring === 1);
+      let ring2 = nbrs.filter(n => n.ring === 2);
+
+      document.getElementById("neighborList").innerHTML =
+        "<b>Ring 1:</b> " + (ring1.length ? ring1.map(x => x.site).join(", ") : "–") +
+        " &nbsp; <b>Ring 2:</b> " + (ring2.length ? ring2.map(x => x.site).join(", ") : "–");
+
+      let bounds = [[src.lat, src.lon]];
+
+      ring1.forEach(n => drawNeighbor(n, src, "#3A7BFF")); 
+      ring2.forEach(n => drawNeighbor(n, src,"#0B8A1E" )); 
+
+      map.fitBounds(bounds, { padding: [40, 40] });
+
+
+      // -------------------------------------------------------
+      // DRAW NEIGHBOR
+      // -------------------------------------------------------
+      function drawNeighbor(n, src, color) {
+
+        // marker
+        L.circleMarker([n.lat, n.lon], {
+          radius: 8,
+          color: color,
+          weight: 2,
+          fillOpacity: 0.9
+        }).addTo(neighborLayer);
+
+        // line
+        L.polyline(
+          [[src.lat, src.lon], [n.lat, n.lon]],
+          { color: color, weight: 1, dashArray: "6 4" }
+        ).addTo(neighborLayer);
+
+        // distance formatting
+        let d = n.distance || 0;
+        let dText = d >= 1000 ? (d / 1000).toFixed(2) + " km"
+                              : d.toFixed(0) + " m";
+
+        // *** new improved two-line label ***
+        let labelHTML =
+          n.site + " (" + n.type + ")<br>" +
+          "<span style='font-size:10px; font-weight:400;'>" + dText + "</span>";
+
+        addLabel(n.lat, n.lon, labelHTML);
+
+        bounds.push([n.lat, n.lon]);
+      }
+    }
+
+
+    // -----------------------------------------------------------
+    // SEARCH
+    // -----------------------------------------------------------
+    function search() {
+      let q = document.getElementById("searchBox").value.trim().toLowerCase();
+      if (!q) return;
+
+      let found = siteNames.find(n => n.toLowerCase() === q);
+      if (!found) return;
+
+      map.setView([webData.sites[found].lat, webData.sites[found].lon], 12);
+      showNeighbors(found);
+    }
+
+    document.getElementById("searchButton").onclick = search;
+    document.getElementById("searchBox").addEventListener(
+      "keyup", e => e.key === "Enter" && search()
+    );
+
+  </script>
+
+</body>
+</html>
